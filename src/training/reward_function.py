@@ -10,6 +10,7 @@ import re
 from typing import Dict, List, Optional, Set, Tuple
 
 from src.constants import COCO_CATEGORIES as _SHARED_COCO_CATEGORIES
+from src.constants import SYNONYM_TO_CATEGORY as _SYNONYM_MAP
 
 
 class HallucinationReward:
@@ -32,6 +33,7 @@ class HallucinationReward:
         self,
         correct_object_weight: float = 1.0,
         hallucinated_object_weight: float = -2.0,
+        missed_object_weight: float = -0.5,
         correct_attribute_weight: float = 0.5,
         wrong_attribute_weight: float = -1.5,
         correct_spatial_weight: float = 0.5,
@@ -44,6 +46,7 @@ class HallucinationReward:
     ):
         self.w_correct_obj = correct_object_weight
         self.w_halluc_obj = hallucinated_object_weight
+        self.w_miss_obj = missed_object_weight
         self.w_correct_attr = correct_attribute_weight
         self.w_wrong_attr = wrong_attribute_weight
         self.w_correct_spatial = correct_spatial_weight
@@ -113,12 +116,24 @@ class HallucinationReward:
         }
 
     def _extract_objects(self, response: str) -> Set[str]:
-        """Extract mentioned object categories from response text."""
+        """Extract mentioned object categories from response text.
+
+        Matches both canonical COCO names and common synonyms/plurals,
+        mapping everything back to canonical category names.
+        """
         response_lower = response.lower()
         mentioned = set()
+
+        # 1. Direct COCO category matches
         for obj in self.COCO_CATEGORIES:
             if re.search(rf'\b{re.escape(obj)}\b', response_lower):
                 mentioned.add(obj)
+
+        # 2. Synonym / plural matches → map to canonical category
+        for synonym, canonical in _SYNONYM_MAP.items():
+            if re.search(rf'\b{re.escape(synonym)}\b', response_lower):
+                mentioned.add(canonical)
+
         return mentioned
 
     def _object_reward(
@@ -144,6 +159,7 @@ class HallucinationReward:
         reward = (
             len(correct) * self.w_correct_obj
             + len(hallucinated) * self.w_halluc_obj
+            + len(missed) * self.w_miss_obj          # penalise missed GT objects
         )
 
         details = {

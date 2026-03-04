@@ -61,6 +61,7 @@ grpo:
 rewards:
   correct_object: 1.0
   hallucinated_object: -2.0
+  missed_object: -0.5
   correct_attribute: 0.5
   wrong_attribute: -1.5
   correct_spatial: 0.5

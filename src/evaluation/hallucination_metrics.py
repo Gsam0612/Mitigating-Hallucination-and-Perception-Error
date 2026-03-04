@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Set, Tuple
 from collections import defaultdict
 
 from src.constants import COCO_CATEGORIES as _SHARED_COCO_CATEGORIES
+from src.constants import SYNONYM_TO_CATEGORY as _SYNONYM_MAP
 
 
 class HallucinationMetrics:
@@ -21,9 +22,19 @@ class HallucinationMetrics:
     COCO_CATEGORIES = _SHARED_COCO_CATEGORIES
 
     def extract_mentioned_objects(self, response: str) -> Set[str]:
-        """Extract object categories mentioned in the response."""
+        """Extract object categories mentioned in the response.
+
+        Matches canonical COCO names and common synonyms/plurals.
+        """
         response_lower = response.lower()
-        return {obj for obj in self.COCO_CATEGORIES if re.search(rf'\b{re.escape(obj)}\b', response_lower)}
+        mentioned = set()
+        for obj in self.COCO_CATEGORIES:
+            if re.search(rf'\b{re.escape(obj)}\b', response_lower):
+                mentioned.add(obj)
+        for synonym, canonical in _SYNONYM_MAP.items():
+            if re.search(rf'\b{re.escape(synonym)}\b', response_lower):
+                mentioned.add(canonical)
+        return mentioned
 
     def object_existence_metrics(
         self,
