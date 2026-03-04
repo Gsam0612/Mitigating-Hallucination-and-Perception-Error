@@ -15,8 +15,8 @@ data:
   coco_images_dir: "./data/coco/val2017"
   pope_dir: "./data/pope"
   visual_genome_dir: "./data/visual_genome"
-  max_train_samples: 500
-  max_eval_samples: 200
+  max_train_samples: 200
+  max_eval_samples: 100
   train_split: 0.8
 
 # ----- VLM -----
@@ -44,15 +44,18 @@ lora:
 
 # ----- GRPO Training -----
 grpo:
-  num_candidates: 3           # K candidates per input (3 for speed, 4-5 for quality)
+  num_candidates: 2           # K candidates per input (2 for A100 speed)
   learning_rate: 2.0e-5       # Slightly higher LR for fewer steps
-  num_epochs: 2               # 2 epochs fits within Colab session (~4 hrs on A100)
+  num_epochs: 1               # 1 epoch — 200 steps × ~80s ≈ 4.5 hrs on A100
   batch_size: 2
   gradient_accumulation_steps: 4
   max_grad_norm: 1.0
   warmup_ratio: 0.1
   kl_coeff: 0.05             # KL divergence penalty
   clip_range: 0.2            # PPO-style clipping
+  max_new_tokens: 256         # Shorter generation for faster training
+  save_steps: 50
+  eval_steps: 25
 
 # ----- Reward Weights -----
 rewards:

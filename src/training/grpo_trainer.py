@@ -37,9 +37,9 @@ class GRPOConfig:
     kl_coeff: float = 0.05          # KL penalty coefficient
     clip_range: float = 0.2         # Clipping range for policy ratio
     temperature: float = 0.8        # Sampling temperature for candidates
-    max_new_tokens: int = 512
-    save_steps: int = 100
-    eval_steps: int = 50
+    max_new_tokens: int = 256
+    save_steps: int = 50
+    eval_steps: int = 25
     output_dir: str = "./results/grpo"
     # LoRA config
     lora_r: int = 16
