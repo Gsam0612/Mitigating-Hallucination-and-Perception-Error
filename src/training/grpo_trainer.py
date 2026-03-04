@@ -98,7 +98,19 @@ class GRPOTrainer:
 
     def _setup_lora(self, model):
         """Apply LoRA adapters for parameter-efficient fine-tuning."""
-        model = prepare_model_for_kbit_training(model)
+        model = prepare_model_for_kbit_training(
+            model, use_gradient_checkpointing=True
+        )
+
+        # Fix: explicitly set use_reentrant=False to suppress PyTorch warning
+        if hasattr(model, "gradient_checkpointing_enable"):
+            model.gradient_checkpointing_enable(
+                gradient_checkpointing_kwargs={"use_reentrant": False}
+            )
+
+        # Disable use_cache (incompatible with gradient checkpointing)
+        if hasattr(model.config, "use_cache"):
+            model.config.use_cache = False
 
         lora_config = LoraConfig(
             r=self.config.lora_r,
