@@ -1,0 +1,629 @@
+
+Mitigating Hallucination and Perception Errors in Vision Language Agents
+by Vedhagiri Alagesan
+Research Report
+
+Submitted in partial fulfilment for the degree of
+MSc Artificial Intelligence
+Supervised by Dr. Oliver Lemon
+
+
+
+
+Heriot-Watt University
+School of Mathematical and Computer Sciences
+
+27th January 2026
+
+Authorship Declaration
+
+Course code and nameF21RP - Research Methods and Project PlanningType of assessmentIndividualCoursework titleMitigating Hallucination and Perception Errors in Vision Language AgentsStudent nameVedhagiri AlagesanStudent IDH00492691
+Your work will not be marked if a signed copy of this form is not included with your submission.
+
+
+
+
+i
+
+Acknowledgements
+I would like to express my sincere gratitude to all those who have supported me throughout this research project.
+  First and foremost, I want to thank my supervisor, Dr. Oliver Lemon, for all the help, advice, and support he gave me while I was writing this dissertation. His helpful comments and support have been very important in guiding this research and pushing me to do my best.
+  I want to thank the teachers and staff at the School of Mathematical and Computer Sciences at Heriot-Watt University for giving me a great place to study and the comput- ers I needed to do this work. The facilities and infrastructure have been very important for doing the Unity simulations and reinforcement learning tests.
+  I want to thank the Heriot-Watt University Ethics Committee for looking over and approving this research project. They made sure that all of the work was done in a way that followed ethical guidelines and responsible research practices. Their supervision has been essential in preserving the integrity and ethical standards of this investigation.
+  I also want to thank the larger research community that is working on embodied AI and vision-language models. The open-source contributions, published benchmarks, and publicly available codebases from researchers around the world have been very important to this work. I am especially thankful for the open-source versions of LLaVA, YOLOv8, and Unity Perception tools that made this research possible.
+  This research builds on many contributions from the academic and open-source commu- nities, and I am proud to be a part of the ongoing effort to make AI systems safer, more reliable, and more helpful for society.
+
+
+
+
+
+
+ii
+
+Abstract
+Visual hallucinations are common in multimodal large language models that act as vision- language agents (VLAs) thus undermining their trustworthiness and safety. Four main types of hallucinations are covered in this proposal namely object existence, misidentification, attribute or count, and spatial relation errors. This research suggest the optimization mechanism based on the Group Relative Policy (GRPO) fine-tuning that is easy to combined with a perceptual component. This pipeline incorporates detector based prompts, multi-view consistency, a chain of thought reasoning process augmented with self-verification, and a hallucination based reward signal which makes the model produce outputs that are based on verifiable visual evidence. Through a state-of-the-art object detector and scene parser, the textual outputs of the agent are grounded in real images and in the process, conflicting statements are alleviated through the use of cross-view verification. GRPO is a simplified version of Proximal Policy Optimization (PPO), which does not use a separate value network, instead giving group-based outcome benefits; this simplification preserves the fidelity but takes advantage of simulated ground-truth rewards. Both training and evaluation annotated datasets are created using a wide variety of interactive scenarios simulated in the Unity engine. Performance gains are measured in terms of hallucinating rate, object mention precision/recall rate, counting accuracy, spatial consistency and calibration fidelity.
+  The literature review will comprise the history of vision- language models, classification of hallucinations, benchmark datasets, and the existing mitigation methods that are being employed at present. The project is expected to yield the following contributions: (1) multimodal truthfulness alignment by reinforcement-learning; (2) an open-source Unity benchmark on visual hallucinations; (3) a modular recipe to combine detection, multi-view reasoning, chain-of-thought, and RL fine-tuning; and (4) a professional, legal, ethical, and social (PLES) guide to safe deployment.
+
+
+
+
+iii
+
+
+Table of ContentsAuthorship DeclarationiAcknowledgementsiiAbstractiiiTable of Contentsiv1 Introduction11.1	Background and Motivation . . . . . . . . . . . . . . . . . . . .11.2	Aim and Objectives .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .21.3	Research Question .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .31.4	Organisation .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .32 Literature Review52.1	Vision-Language Models and Embodied Agents.:	.  .  .  .  .  .  .  .  .  .  .52.2	Taxonomy of Hallucinations . . . . . . . . . . . . . . . . . . . .62.3	Hallucination and Safety Evaluation Benchmarks . . . . . . . . . . .82.4	Reasons behind Hallucination in LVLMs . . . . . . . . . . . . . . .102.5	Inference-Time Mitigation: Decoding and Prompting.	.  .  .  .  .  .  .  .  .122.6	Training-Time Mitigation and GRPO-Style reinforcement learning. . . . .132.7	Safety-Focused Benchmarks and Embodied Evaluation. . . . . . . . . .142.8	Synthesis and Recommendations for Further Action . . . . . . . . . .153 Requirement Analysis173.1	Functional Requirements (FR): . . . . . . . . . . . . . . . . . . .173.2	Non- Functional Requirement (NFR): . . . . . . . . . . . . . . . .184 Methodology194.1	System Architecture Overview . . . . . . . . . . . . . . . . . . .194.2	Unity Simulation and Dataset Generation	.  .  .  .  .  .  .  .  .  .  .  .  .  .214.3	Baseline VLA Pipeline . .  . . . . .  . . . .  . . . . . . . . .  . .214.4	Modular Mitigation Components . . . . . . . . . . . . . . . . . .22
+iv
+
+Mitigating Hallucination and Perception Errors in Vision Language Agents  •  v
+4.5 GRPO Training Procedure	23
+4.6 Evaluation Protocol	24
+5 Professional, Legal, Ethical and Social Issues (PLES)	25
+5.1 Professional and Engineering Responsibilities	25
+5.2 Legal and Regulatory Frameworks	26
+5.3 Ethical Issues: Fairness, Transparency and Trust	26
+5.4 Social Impacts and Future of Work	27
+5.5 Conclusion and Limitations	28
+References	29
+A Project Management	31
+A.1 Gantt Chart	31
+B Generative AI	35
+
+1 Introduction
+
+Mitigating Hallucination and Perception Errors in Vision Language Agents  •  1
+
+
+1.1 Background and Motivation
+The use of large vision-language models (VLMs) and agents (VLAs) has completely trans- formed multimodal AI by allowing systems which can see and say, i.e. they view pictures or videos and can respond in natural language in real-time. Models such as LLaVas demon- strate good results on open-ended visual question answering and chatting through the combination of potent visual encoders and large language backbones[1]. Let you put them into some mobile robot or a simulated avatar, and you will have an embodied agent who can obey language instructions, tell you what it is looking at, and devise maneuvers around complex spaces.
+  Despite all that development, however, VLAs continue to experience high hallucination rate: they will tend to mention objects that are not there, make wrong identifications, count wrongly, or represent spatial objects in a incorrect way [3, 7]. Hallucinations only reduce accuracy in tasks of static captioning, whereas in embodied environments they can directly cause unsafeness or cause the robot to malfunction. An example is when an agent may say that there is no one around a hallway when it is not, overlooking a hazard, or even creating a tool that it believes it requires to perform a task. Multimodal system benchmarks including hallucination and safety recently show that these perception failures are the primary barrier to reliable deployment. [3, 7, 13]
+  The problem is aggravated in the case of interactive or multi-view. As the number of objects increases, there is an increase in the hallucinations since the model places a lot of weight on the priors in the datsets and the language statistics rather than concrete visual evidence [1, 3]. Standards such as MIHBench demonstrate that hallucinations may occur or change depending on the camera view when you do not impose cross-view consistency [3]. Safety-oriented embodied benchmarks display that misperceptions cut into risky courses of action [7, 13].
+  This is why this project aims at aligning VLAs with visual truth when there is training in embodied environments. Instead of merely adjusting prompts or providing post-hoc filters
+
+2 •  Vedhagiri Alagesan
+
+at inference, the plan applies reinforcement learning which is based on rewards obtained through simulation to direct the model to avoid hallucinations in favour of grounded outputs. Unity is the platform of choice since it allows us to create and manipulate rich 3D scenes, customize hazards and provide accurate ground-truth annotations on which automatic scoring can be applied.
+  It is intended to develop and experiment a training-time reinforcement learning sys- tem that reduces hallucinations in Vision-Language Agents without sacrificing the high recall and making the tasks of the Vision-Language Agents less hazardous in real world environments.
+
+
+
+
+1.2 Aim and Objectives
+The aim is to develop and evaluate a reinforcement learning approach at training time, capable of reducing VLA hallucinations while preserving information recall and enhancing task safety for embodied scenarios.
+O1:- Implementing a Unity simulation benchmark with diverse scenes and ground-truth annotation for controlled hallucination evaluation.
+O2:- Implement a modular VLA pipeline comprising an object detector, multi-view percep- tion, chain-of-thought reasoning, and self-verification [1, 8, 11].
+O3:- Design a hallucination-aware reward and fine-tune the VLA using GRPO to prefer Non-Hallucinated outputs [8, 11].
+O4:- Evaluate the approach on hallucination metrics and perform ablation studies for each module [1, 3, 4, 15]
+O5:- Address Professional, Legal, Ethical, and Social (PLES) implications and ensure repro- ducibility of results [7, 12, 13].
+
+Mitigating Hallucination and Perception Errors in Vision Language Agents  •  3
+
+1.3 Research Question
+RQ1:- How frequently do the four hallucination types (object-existence, misidentification, attribute, spatial-relation) occur in an off-the-shelf VLA operating in Unity indoor environ- ments?
+RQ2:- How effective are modular techniques-object-detection grounding, multi-view con- sistency, CoT prompting and self-verification-individually and in combination at reducing hallucinations?
+RQ3:- How can a GRPO-based RL framework be designed so that hallucination-aware rewards improve visual grounding without excessively harming recall or fluency ?
+RQ4:- What impact do hallucination-mitigation strategies have on downstream task suc- cess and safety in interactive scenarios, including safety benchmarks such as IS-Bench [7] and SafeAgentBench [13]?
+RQ5:- Which professional, legal, ethical and social issues arise when deploying hallucination- mitigated VLAs, and how should they influence system design, evaluation and documenta- tion?
+
+1.4 Organisation
+The organization of this dissertation is meant to give a full look at how to reduce hal- lucinations in Vision-Language Agents, moving logically from theory to practice and evaluation.
+  Chapter 1: Introductionsets the stage for this research by talking about the important issue of hallucinations in embodied Vision-Language Agents. It outlines the research aim, five principal objectives, and five research questions that direct the inquiry into training- time mitigation strategies.
+  Chapter 2: Literature Review looks at the current state of research in many areas in great detail. It starts with a general description of vision-language models and embodied agents, and then it goes into great detail about the different types of hallucinations. This chapter looks at existing benchmarks for hallucinations (POPE, MOH, MIHBench) and
+
+4  •  Vedhagiri Alagesan
+
+safety-focused evaluations (IS-Bench, SafeAgentBench). It also looks at the reasons why hallucinations happen in LVLMs and surveys both inference-time and training-time ways to reduce them. It ends with a synthesis that points out important gaps that this research fills.
+  Chapter 3: Requirement Analysis takes the goals of the research and turns them into clear system requirements. It lists seven functional requirements that include scene generation, VLA pipeline components, mitigation modules, GRPO training, and evaluation infrastructure. Five non-functional requirements deal with reliability, safety awareness, transparency, computational efficiency, and extensibility. These requirements make sure that the system meets both technical and moral standards.
+  Chapter 4: Methodology talks about the technical way to answer the research questions. It talks about the four-layer system architecture, the design of the Unity simulation envi- ronment, the baseline VLA pipeline, and three modular mitigation components: grounding for object detection, checking for consistency across multiple views, and chain-of-thought reasoning with self-verification. The chapter describes the GRPO training process, which includes rewards for being aware of hallucinations, and it also talks about a full evaluation protocol with planned ablation studies.
+  Chapter 5: Professional, Legal, Ethical, and Social Issues (PLES) looks at the bigger picture of using hallucination-mitigated VLAs. It talks about the duties of professionals when it comes to system design and testing, the law, including liability and compliance issues, ethics, such as fairness and transparency, and the effects on work and accessibility in society. This chapter makes sure that the research takes into account problems with real-world deployment that go beyond technical performance.
+  Appendix A: Project Management shows the full 16-week project timeline broken down into five modules. A complete Gantt chart shows the tasks, milestones, and dependencies for each module from January to April 2026.
+  Appendix B: Generative AI gives a clear account of how AI tools were used in the research process, including their goals, how they were checked, and how they followed academic integrity rules.
+
+Mitigating Hallucination and Perception Errors in Vision Language Agents  •  5
+
+2 Literature Review
+
+2.1 Vision-Language Models and Embodied Agents.:
+Today LVLMs are much more powerful and use the visual encoders in addition to high- capacity language models. Systems such as LLaVA also learn to refine an image encoder, which is a ViT-like model, on pairs of instructions and model outputs and also learn on conversation data. That allows the model to perform open-ended image-based visual question answering, captioning and multi-turn dialogue [5]. What you have is a general
+-purpose tool, ideal at least in the case of embodied agents, be it simulation or real world, where the model must not merely be able to describe what it is seeing, but what to do next. Meanwhile, the object recognition remains a central part of embodied perception. One- stage detectors such as YOLOv8 (released in 2023) have been improved through multiple generations and today provide you with a real-time detector and instance segmentation with improved accuracy as compared to previous models[2]. Most embodied systems input the output of the detector, which is bounding boxes, classes, and a small number of attributes, as a compressed scene description to an LVLM policy, rather than actual pixels. That assists in grounding and reduces the number of hallucinations which are purely
+language driven.
+  LVLMs are now as tested in more complex situations. An example is the introduction of a multimodal interactive safety benchmark by IS -Bench. It verifies the performance in VLM-driven agents in carrying out home tasks in the safety conditions and proper se- quencing of mitigating risk measures [7]. SafeAgentBench also works in a similar manner, but concerns planning tasks with safety-conscious agents, demonstrating that a significant number of systems will accept potentially dangerous instructions with a very small proba- bility of refusing [13]. These works underscore the fact that despite effective instructions after and visual recognition, the safety and grounded behavior do not depend solely on the presence of a model, which is inclined towards language biases or misinterprets visual signals.
+
+6  •  Vedhagiri Alagesan
+
+  This project is based on that direction, in which LVLMs are viewed as not only perception- reasoning engines, but also policies the hallucination of which can be trained using a reinforcement learning at training time. Unity based simulator and GRPO training loop is an attempt to combine the capabilities of the modern detectors [2] and LVLMs [5, 9] with an explicit goal of minimizing the number of hallucinations.
+
+2.2 Taxonomy of Hallucinations
+Hallucination simply refers to the model producing something with confidence without being supported by the inputs. That is nasty in LVLMs since the model may sound per- suasively visual even at times the model is incorrect. Recent efforts have shifted to more definite taxonomies. Chen et al. introduced the term multi-object hallucination to refer to a multi-object query being invented by an LVLM, or confounded by the co-occurring items, or incorrectly counting an item [1]. They discovered that hallucinations increase with the dispersion of the attention of the model on a number of objects- and it is a fundamental weakness of multi-object reasoning.
+In embodied settings, this research focus on four important types of hallucinations:
+Object existence hallucination - saying an object exists when it does not.
+Object misidentification hallucination - misclassifying an object.
+Attribute hallucination- hallucinating properties such as colour, quantity or condition. Spatial-relation hallucination-This is a misrepresentation of the location of an object with regard to another object.
+  Zhu et al [15]. demonstrated that LVLMs are capable of building a spatial bias, and they match language templates to positional tokens in the training information. That results in systematic errors in relational reasoning, that is precisely the type of spatial-relation hallucination are addressing here.
+  Liu et al [6]. provide the first comprehensive survey of hallucinations in LVLMs, synthe- sising benchmarks, causes, and mitigation methods. They distinguish between perception- level hallucinations (errors in object, attribute or relation recognition), reasoning-level
+
+Mitigating Hallucination and Perception Errors in Vision Language Agents  •  7
+
+hallucinations (logical inconsistencies or unsupported intermediate steps), and instruction- level hallucinations (misinterpretation or over-generalisation of user instructions). The given taxonomy is appropriate with the embodied agents, as perception errors may lead to unsafe physical behavior, and reasoning errors may lead to task constraints or safety violations.
+  According to Xiao and Wang [12], to manage hallucination, uncertainty estimation is required. They demonstrated that models that estimate their self-uncertainty in captioning make more reliable predictions and allow downstream systems to understand when to trust predictions. In the case of a safety-critical embodied agent, the auditory feedback to the visual comprehension is equally important as the increase of the raw accuracy.
+  In general, the literature indicates that hallucination in LVLMs is a complicated issue, and it needs a taxonomy that is fined to come up with effective solutions. I will apply the four aforementioned types as assessment criteria of both training-time RL and ablation experiment.
+
+Table 1. Taxonomy of Hallucination Types in Vision-Language Agents
+
+Hallucination TypeDefinitionExample ScenarioImpact on Embodied AgentsObject ExistenceClaiming an object ex- ists when absent, or missing an existing ob- ject"There is a fire extin- guisher on the wall" when none presentMay cause agent to rely on non-existent tools or overlook safety equip- mentObject Misidenti- ficationIncorrectly classifying an object as anotherIdentifying a mug as a bowl, or a knife as a spoonCould lead to inappropri- ate object manipulation or task failureAttribute Halluci- nationIncorrect properties (color, count, size, condition)"Two red bottles" when one blue bottle existsAffects precise task execu- tion requiring specific ob- ject propertiesSpatial RelationMisrepresenting rela- tive positions of ob- jects"The knife is left of the plate" when it's on the rightCritical for navigation and manipulation tasks; may cause collisions
+8  •  Vedhagiri Alagesan
+
+2.3 Hallucination and Safety Evaluation Benchmarks
+Most of the new research is establishing batteries of tests to reveal hallucination in LVLMs. One example of such a hallucination system, POPE, investigates object existence and attribute hallucinations using well-designed image-question pairs [4]. It demonstrates that the latest models to be even capable of responding confidently to trick prompts or implicit visual confounders, which contributes to the importance of further diagnostic grounding tests.
+
+Fig. 1. Illustration of the POPE hallucination evaluation protocol. Left: instruction-based captioning where the LVLM freely describes the image. Right: POPE random, popular, and adversarial query settings that probe object-existence hallucinations with yes/no questions (e.g., asking about bottles, knives, or non-existent pears). Image source Li et al. [4].
+
+  Multi-Object Hallucination in Vision-Language Models (MOH) paper proposed a recog- nition based probing protocol named ROPE which addresses the multi-object scenarios [1]. They find that LVLMs tend to hallucinate when required to attend to multiple objects, and that patterns of co-occurrences in training data cause the systematic over-prediction of popular objects, which is consistent with the object-existence and misidentification failure modes that I am exploring.
+  MIHBench brings the concept of benchmarking to a multi-image case, requiring an LVLM to unite information in a number of views or frames [3]. It presents tasks of multi image object existence, object count and cross view identity consistency. Li et al. demonstrate that the severity of hallucinations increases with increasing number of input images, that the
+
+Mitigating Hallucination and Perception Errors in Vision Language Agents  •  9
+
+hallucinations can be contagious amongst images, and that placing negative or distractor images near the images actually disrupts the performance. It is especially applicable when using embodied agents who also receive multi-view observations at varying camera angles: providing a collection of images to an LVLM blindly will only aggravate hallucinations unless something is changed in the architecture or training procedure.
+
+
+
+
+Fig. 2. Overview of MIHBench categories for multi-image hallucination evaluation: object count hallucination, object existence hallucination, and object identity consistency hallucination across multiple images. Image source Li et al. [3].
+
+
+  Although these hallucination-centered benchmarks are concerned with the fidelity of perception, other benchmarks are more concerned with safety. IS-Bench examines interac- tive safety of VLM-driven agents, whether they are capable of detecting emerging threats and effect appropriate mitigation measures in a simulator of 161 scenarios and 388 safety risks [7, 13]. SafeAgentBench, conversely, is concerned with safe task planning of embodied LLM agents and demonstrates that even best baselines avoid risky tasks at extremely low probability, indicating poor safety awareness [8, 13]. These findings resonate with recent RLHF-based alignment studies on large multimodal models, which report persistent hallucination and safety risks in multimodal agents even after substantial alignment and risk-reduction fine-tuning [9].
+Collectively, these benchmarks reveal three areas of serious gaps:
+• Current hallucination benchmarks are largely inert and non-interactive; they do not often tend to use hallucination errors with real task-level outcomes in an embodied loop.
+
+10  •  Vedhagiri Alagesan
+
+• The research on multi-image hallucination is under-investigated in embodied con- text, despite the fact that agents are inherently able to view the world in more than one perspective.
+• Interactive safety benchmarks: Interactive safety can be measured by the IS-Bench and SafeAgentBench, but in general lack training-time RL specifically responsible at reducing hallucinations.
+  The hypothesis Unity-based benchmark is meant to be used to bridge these gaps partly by being a framework that integrates controlled visual scenes, multi-view perception, hallucination-aware reward shaping and task-level evaluation.
+Table 2. Comparison of Existing Hallucination Benchmarks and Proposed Approach
+
+BenchmarkFocus AreaHallucination Types CoveredInter- active/ Em- bodiedMulti- View Sup- portKey LimitationPOPE [4]Object existence & attributesExistence, AttributeNoNoLimited to yes/no ques- tions; non-interactiveMOH/ROPE [1]Multi-object scenar- iosExistence, Misiden- tificationNoNoDoes not address em- bodied contextsMIHBench [3]Multi-image consis- tencyExistence, Count, IdentityNoYesStatic evaluation; no training feedback loopIS-Bench [7]Interactive safetyAll types (implicit)YesLimitedNo hallucination- focused	training mechanismSafeAgent- Bench [13]Safe task planningAll types (implicit)YesNoFocus on refusal rates, not perception accu- racyProposed Unity Bench- markTraining-time RL mitigationAll four types ex- plicitlyYesYesInitially simulation- based; requires real- world validation
+
+
+2.4 Reasons behind Hallucination in LVLMs
+It is important to know the reasons why LVLMs hallucinate in order to design good mitigation. There are several patterns continuing to emerge in the books. To begin with, excessive dependence on language priors is a major motivation. LVLMs frequently make
+
+Mitigating Hallucination and Perception Errors in Vision Language Agents  •  11
+
+guesses about probable objects or features on the text, although these guesses are not justified in the image. Chen et al. demonstrate that the LVLMs impose hallucinations on objects that can frequently be present in the training data in multi-object settings (such as the creation of a fork next to a dining table) [1]. Chain-of-thought (CoT) prompts in multimodal tasks, as proposed by Wang et al. and others, imply that reasoning prompts can not only be beneficial, as they can encourage more grounding, but can also be detrimental as they can generate more language priming when the model does not have a strong visual cue [14].
+  Second, it is centered around dataset bias and weak visual grounding. Zhang et al. show that LVLMs have spatial biases, such that shared relative configurations (e.g. sky above ground) are leaked into the prediction even when images are manipulated to violate such configurations [15] Other causes of hallucination described in a survey conducted by Liu et al. include noisy or mismatched training captions, the under-representation of rare objects, and maladjusted fusion modules that under-represent visual tokens relative to text [6] [14]. Third, it is becoming increasingly apparent that even fusion and decoding mechanisms in themselves can be the cause of a hallucination. Wang et al. examine the interaction between the formulations of the instructions and the Q-Former architecture adopted in most LVLMs and demonstrate that some disturbances of the instructions such as the ones that state: you are a confused detector can systematically amplify hallucination by destabilizing multimodal alignment [10]. They suggest Instruction Contrastive Decoding (ICD), which involves comparing tokens distributions under both normal and disturbed instructions as well as penalizing tokens that tend to increase more when the model is confused (see inf.uni-hamburg.de). This demonstrates that hallucination is not just a training data or training weight problem: it can be affected (or reduced) also at inference, using decoding
+tricks.
+  Lastly, Mukherjee et al. believe in models being over-confident in the results of hallu- cination and state that uncertainty-aware training and calibration can aid in detecting
+
+12  •  Vedhagiri Alagesan
+
+low-trust predictions [12]. In safety-critical embodied tasks, this means that the hallucina- tion problem is two-fold, that is, decrease the frequency with which it occurs and increase the sensitivity of the agent to the possibility that it could still be false.
+  In the context of this dissertation, such causes encourage the combination of a mitigation strategy which includes:
+• More efficient visual grounding through explicit object detection and multi-view consistency.
+• Hallucination-conscious reward signals which are punitive to language-prior-driven errors.
+• Thoughtful decoding, CoT design, which might subsequently incorporate concepts such as ICD [10]
+
+2.5 Inference-Time Mitigation: Decoding and Prompting.
+Large portion of new research is focused on hallucination at inference time, without accessing model weights. These techniques are popular in the sense that they can be applied to closed source or API only models and are inexpensive to implement. One of such is Instruction Contrastive Decoding (ICD) [10]. By introducing a confounded instruction (e.g. prefixing with a role that promotes confusion) and contrastingly penalizing tokens more prone to receive this confounded instruction Wang et al. demonstrate that you can reduce object-level hallucination on POPE and many other benchmarks without reducing or decreasing F1 scores. Their findings demonstrate that decoding may be regarded as self-diagnostic, whereby the instability of the model in perturbed situations is used to indicate hallucination-prone tokens.
+  Alternatives, like contrastive decoding LVLM versus a more conservative text-only model, or multiple LVLM checkpoints, are also based on the same principle: identify hallucination candidates as disagreements and suppress them during decoding. The survey by Liu et al. [6] further divides the inference-time mitigation into prompt engineering (such as adding explicit grounding instructions, think step by step and checking the image),
+
+Mitigating Hallucination and Perception Errors in Vision Language Agents  •  13
+
+reranking (selecting the least hallucinated candidate among a series of samples), and external verification (checking generated statements with the help of a tool or a detector). These tricks are inference time tricks, though they are very practical to implement and much of the time reactive. They do not modify the tendency of LVLM to hallucinate; they simply interfere or conceal poor results. On the side of an embodied-agent, that is restrictive: even hallucinations during intermediate reasoning stage (e.g., CoT justification
+which is never displayed to the user but influences action choice) can destroy safety.
+  Although this is that which these inference-time tricks do, they are easy to add, but remain fairly reactive. They do not alter the basic predilection of the LVLM to hallucinate; they merely intercept or conceal inopportune products. That is a genuine issue to an agent doing embodied agents due to the possibility that the hallucinated intermediate reasoning steps such as chain-of-thought justifications which do not reach the user but cause the system to act can still make it unsafe.
+  The project thus considers such approaches as a side effect of a greater repair and will apply reinforcement learning to condition the decision-making process of the LVLM in such a way that it gets less grounded and less prone to hallucinating even within the chain-of-thought.
+
+2.6 Training-Time Mitigation and GRPO-Style reinforcement learning.
+Training-time mitigation aims to modify the model rather than only the decoding of the model. According to a survey by Liu et al. there are a few methods of doing so: fine-tuning on counter-hallucination datasets, preference-based alignment (such as DPO prompts to incentivize grounded outputs), and RL with hallucination-sensitive rewards[6]. The bulk of this remains preliminary and there is very little in the way of exploring embodied, simulation-based RL of LVLMs.
+  The recent articles on the Group Relative Policy Optimisation (GRPO) and PPO-type approaches provide us with a strong theoretical and practical foundation to train large policy with sparse or noisy feedback [8, 11, 13]. Shi's tutorial on vision researchers is
+
+14  •  Vedhagiri Alagesan
+
+a framework that views PPO/GRPO as a means of matching models to complex visual objectives such as consistency across views, safety constraints [13].. The Fast-Slow Thinking GRPO by Xiao and Gan recommends the training of agents with quick reactive and slow deliberative functions and aligning them together by policy optimisation [11]. That concept is similar to the project scheme of combining rapid perception (an object detector, fast thinking) with slower self-verification processes.
+  Within the LVLM space in particular, Chen et al. [1], Li et al. [3] and others are tackling hallucination as a reward-design problem: award a bonus when the predictions match the ground-truth objects, attributes, relations etc. and penalize when the model is hallucinating. However, the majority of tests are offline analysis, unlike closed-loop RL training.
+Our framework adds to this by:
+• Constructing a Unity-based simulation over which one can construct ground-truth annotations (object lists, attributes, positions) and align them with predictions made by LVLM at each timestep.
+• The hallucination reward functions should be defined to punish four forms of hallucination (existence, misidentification, attribute, spatial) yet the task-level recall should remain.
+• Running a GRPO-type RL cycle to make small improvements to the LVLM pol- icy, effectively implementing prompt-based mitigation measures (e.g. CoT, self- verification) into the internal behaviour of the model rather than simply moving them up the inference pipe.
+
+2.7 Safety-Focused Benchmarks and Embodied Evaluation.
+Safety receives a lot of attention as LVLMs enter the real world, embodied roles. IS -Bench demonstrates that VLM -active agents tend to miss dynamic hazards when performing tasks at home despite receiving safety -conscious prompts and chain-of-thought hints [7, 13] [3,4]. Their process-based analysis indicates that the agents can achieve task objectives in the process of violation of safety regulations such as pouring boiling water over an
+
+Mitigating Hallucination and Perception Errors in Vision Language Agents  •  15
+
+individual. SafeAgentBench goes even further and generates 750 tasks of the different types of hazards and discovers that even state-of-the-art agents, including front-liner models, are readily available on safe tasks but rarely back-off on hazardous tasks [8, 13] [4,5].
+  These findings align with recent training-time RLHF work on large multimodal models, which still observes non-trivial hallucination and safety risks in multimodal agents despite extensive alignment and risk-reduction effort [9]. In all these studies, the primary offender that damages safety is that hallucination may cause an agent to perceive a false hazard and be unnecessarily responsive, or it may fail to identify a hazard because it erroneously classifies or misunderstands spatial relations.
+  Nevertheless, the majority of safety benchmarks operate pre-trained and fixed policies and are performance oriented. They do not provide much of a roadmap on how to train algorithms that can reduce hallucination and enhance safety step-by-step. They also do not consider hallucination and safety as correlated measures (such as the success rate vs. the rejection rate) but rather connect hallucination to a learning reward.
+  This project seeks to transition the current state of art of a single, static assessment of the safety of an agent through the use of hallucination metrics in the reward function of the RL and to redefine safety as an optimisation-based agent, thus making the agent both practical and realistic.
+
+2.8 Synthesis and Recommendations for Further Action
+The literature reviewed above leads to several key insights:
+  The hallucination is all over and in a variety of forms: LVLMs have illusions of objects, attributes, relations and even chains of reasoning particularly in multi object, multi view scenes [1, 3, 6, 15]. The simple increase of model size or pre-training data does not help.
+  Existing benchmarks are present but fragmented: POPE, MOH and MIHBench pro- vide good diagnostic indicators whereas ISBench and SafeAgentBench are concerned with safety [7, 8, 13]. However, no one has an integrated environment that judges hallucination,
+
+16  •  Vedhagiri Alagesan
+
+task achievement and safety simultaneously in an embodied environment with learning feedback.
+  Inference tricks are useful but do not change the model weights: Methods such as Instruction Contrastive Decoding [10] and grounded prompt engineering are capable of reducing hallucinations without retraining, but do not alter the inner workings of the model. They also find it difficult to deal with hallucinations that occur in concealed intermediate logical processes.
+  LVLMs used in the context of an embodied environment are underutilized using training-time RL and preference-based methods: Although theoretically, GRPO and analogous algorithms are well-known, very little has been done to apply them to vision- language agents, using hallucination-aware rewards, even in high-fidelity simulators [8, 11, 13].
+On the basis of those gaps, this research recommends and adopts the following structure:
+• Construct a Unity benchmark which resembles MIHBench and IS-Bench, providing controllable scenes, multi-view views and ground-truth annotations to the existence of all objects, their attributes and spatial relationships [3, 7].
+• Develop clear hallucination measures of the four types of hallucinations and treat them both as the assessment criteria and part of the RL reward.
+• Integrate modular perception and reasoning: apply a YOLOv8 style detector to structured scene representations [2], an LVLM, say LLaVA, to reason and generate language and self-verify with inspired ICD-style contrastive reasoning [10].
+• Use a GRPO-type RL loop to optimize the LVLM to the hallucination-sensitive rewards, both terminal answers and intermediate chain-of-thought [6, 8, 11].
+
+Mitigating Hallucination and Perception Errors in Vision Language Agents  •  17
+
+3 Requirement Analysis
+
+3.1 Functional Requirements (FR):
+Based on our existing knowledge of literature and based on the expressed goals of the project, identify the following functional requirements of our system:
+FR1:- Scene Generation and Annotation
+The system shall genrate diverse unity scenes(rooms, corridors, hazard zones) containing labelled objects with attributes(class, colour, size, pose) and spatial relations.
+Evaluation:Coverage of object categories and relations, ability to export ground-truth an- notations
+FR2:-VLA Baseline Pipeline
+The system shall integrate a pre-trained VLM with a perception interface that ingests RGB frames and produces textual descriptions or answers.
+Evaluation: Baseline hallucination rates and task success on benchmark scenarios.
+FR3:- Object-detection grounding
+The system shall incorporate an object detector (e.g. YOLO-style model) whose detections are used to construct a grounded representation of the scene .
+Evaluation: Agreement between detector output and annotated ground truth; reduction in object-existence hallucinations.
+FR4:-Multi-view Consistency Module
+The system shall support multiple camera views per scene and a module to cross-check answers across views, inspired by MIHBench's multi-image tasks [3].
+Evaluation: Rate of cross-view contradictions; reduction in multi-image hallucinations.
+FR5:- Chain-of-Thought and self-validation:
+The system shall support CoT prompts that elicit intermediate reasoning and self-verification questions about object presence and relations [11, 14].
+Evaluation: Quality and stability of CoT, decreases in logically incoherent descriptions.
+FR6:-GRPO training loop
+
+18  •  Vedhagiri Alagesan
+
+The system shall implement a GRPO RL loop that samples responses, computes hallucination- aware rewards and updates the VLM parameters [8, 11].
+Evaluation: Training stability; convergence behaviour; improvement in hallucination met- rics.
+FR7:- Evaluation and Logging
+The system shall log per-scene data: images, detections, text outputs, CoT traces, rewards, and metric scores, enabling iterable analysis.
+Evaluation: Completeness of logs; ability to reconstruct results and ablations.
+
+3.2 Non- Functional Requirement (NFR):
+NFR1:-Reliability and Robustness
+The system should maintain consistent performance across diverse lighting conditions, clutter levels, and camera viewpoints, reflecting robustness goals in IS-Bench. [7].
+NFR2:-Safety Awareness
+The system shall avoid suggesting actions that might contradict explicit hazard indicators in the scene, according to the safety focus of SafeAgentBench. [13].
+NFR3:-Transparency and auditability
+The system shall provide interpretable logs-detections, CoT, decisions to facilitate debug- ging and accountability consistent with OpenAI's emphasis on transparency [9].
+NFR4:-Computational Efficiency
+The GRPO training pipeline should run within practical resource limits by leveraging the efficiency advantages of GRPO over PPO. [8, 11]
+NFR5:-Extensibility
+The Unity environment and pipeline shall be extensible to new tasks, detectors or VLM backbones such as successors to LLaVA or GPT-4V.[1, 9]
+
+Mitigating Hallucination and Perception Errors in Vision Language Agents  •  19
+
+4 Methodology
+The methodology is designed to satisfy the requirements above while demonstrating a clear link from design choices to evaluation.
+
+4.1 System Architecture Overview
+The proposed system contains four main layers:
+(1) Unity Simulation Layer - generates scenes, hazards and ground truth.
+(2) Perception Layer - includes RGB cameras and an object detector (YOLO-style) [2].
+(3) VLA Reasoning Layer - a pre-trained VLM (e.g. LLaVA) with CoT prompting [1, 11, 14].
+(4) RL Optimisation Layer - GRPO-based fine-tuning using hallucination-aware rewards [8, 11].
+Then describe the question as a separate input and finalized output :
+• User Input Layer - Question / Task Prompt Natural-language questions or task instructions that are fed directly into the VLA Reasoning Layer alongside the grounded visual scene representation.
+• Output Layer - Final Answer / Action Produces the final system response
+
+20  •  Vedhagiri Alagesan
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Fig. 3. Overall System Architecture of the proposed hallucination mitigation framework.
+
+Mitigating Hallucination and Perception Errors in Vision Language Agents  •  21
+
+4.2 Unity Simulation and Dataset Generation
+To systematically test our approach, designed three categories of Unity scenes:
+
+(1) Simple rooms contain just a few objects with clear visibility. These serve as our initial calibration environments where the model should perform well.
+(2) Cluttered rooms feature many overlapping objects that frequently trigger multi- object and spatial hallucinations [1, 3, 14].
+(3) Hazard scenarios are inspired by benchmarks like IS-Bench and SafeAgentBench [7, 13]. These environments require the agent to accurately perceive dangerous items such as knives, hot surfaces, and fragile objects to behave safely.
+
+  Every frame comes with comprehensive ground-truth annotations including object lists, attributes, and pairwise spatial relationships. Split these scenarios into training, validation, and test sets to support both reinforcement learning and rigorous final evaluation.
+
+4.3 Baseline VLA Pipeline
+Before implementing our mitigation strategies, establish a baseline to measure the extent of the hallucination problem. The baseline agent follows a straightforward process:
+
+(1) Capture one or more RGB frames from the Unity environment.
+(2) Feed the primary frame to the vision-language model with a simple prompt that includes no grounding information or chain-of-thought structure.
+(3) Record the model's generated caption or answer.
+(4) Calculate hallucination metrics by comparing against ground truth, looking for incorrect objects, missing objects, extra objects, and mismatches in attributes and spatial relations [1, 4, 15].
+
+  This baseline gives us concrete numbers on how often and in what ways the model hallucinates without intervention, providing reference points for measuring improvement.
+
+22  •  Vedhagiri Alagesan
+
+4.4 Modular Mitigation Components
+4.4.1 Object-Detection Grounding. integrating a YOLO-style object detector [2] that pro- cesses the same frames as the vision-language model. The detector produces a structured list of objects with confidence scores, which inject directly into the VLM prompt as a "scene summary." For example:
+Detected objects: {cup, plate, microwave, countertop}. Based on this list and the image, answer the question...
+  This grounding strategy explicitly discourages the model from mentioning objects not present in the detector's output. During training, the reward function penalizes any claims about objects that lack detection support.
+4.4.2 Multi-View Consistency. Drawing inspiration from MIHBench [3], capture multiple camera views of the same scene-for instance, front and side perspectives. The agent can process these views in two ways:
+• Concatenated processing: Combine visual and textual information from all views into a single input.
+• Separate processing with consistency checking: Generate answers indepen- dently for each view, then run a consistency checker to flag contradictions.
+  If the model gives different answers for different views, either give it negative rewards or ask it more self-verification questions. This pushes the agent to make sense of conflicting evidence and come to a clear picture of what is going on.
+4.4.3 Chain-of-Thought and Self-Verification. Adopt chain-of-thought prompting strategies from recent multimodal reasoning work [11, 14]. Rather than jumping straight to an answer, the agent is prompted to:
+(1) Enumerate visible objects and their attributes.
+(2) Reason explicitly about spatial relationships.
+(3) Synthesize this information into a final, concise answer.
+
+Mitigating Hallucination and Perception Errors in Vision Language Agents  •  23
+
+  This research also incorporate self-verification queries-questions like "Are you sure there is a knife? Re-check the image and detected objects." These prompts give the model a chance to catch and correct its own hallucinations before committing to a final response. This approach is inspired by work on uncertainty-aware captioning and behavioral consistency [12].
+
+
+4.5 GRPO Training Procedure
+Using Group Relative Policy Optimization (GRPO) [8, 11] to fine-tune the vision-language model with hallucination-aware rewards. The training loop works as follows:
+
+(1) Sampling: For each scene, the current policy generates multiple candidate outputs, including both chain-of-thought reasoning and final answers.
+(2) Scoring: Each candidate receives a reward score based on:
+(a) Negative penalties for hallucinated objects, incorrect attributes, or wrong spatial relations (verified against ground truth).
+(b) Positive rewards for correctly mentioning objects, accurate counting, and safe recommendations.
+(c) Minor penalties for excessive verbosity or off-topic content to prevent overly long chain-of-thought explanations.
+(3) Grouping: Candidates are organized into small groups, and compute relative ad- vantages within each group to identify better versus worse outputs.
+(4) Policy Update: update the VLM parameters using GRPO, shifting probability mass toward outputs that are more grounded and safer. Importantly, this approach doesn't require training a separate critic network.
+
+  Throughout training, This research monitor performance on validation scenes and use early stopping plus hyperparameter tuning guided by hallucination and task-level metrics.
+
+24  •  Vedhagiri Alagesan
+
+4.6 Evaluation Protocol
+The evaluation framework addresses both hallucination reduction and practical task per- formance:
+(1) Hallucination Metrics: Measure object-existence errors, misidentification rates, attribute error rates, and spatial relation accuracy, following benchmarks like Hallu- cinBench [1, 4, 15].
+(2) Multi-View Consistency: Track how often the model contradicts itself across different camera views [3].
+(3) Uncertainty and Calibration: Qualitatively assess whether the model appropri- ately expresses uncertainty (e.g., "I'm not sure") rather than confidently stating incorrect information [12].
+(4) Task Success and Safety: Drawing from IS-Bench and SafeAgentBench [7, 13], measure success rates on navigation and manipulation tasks, as well as the frequency of hazard-related mistakes.
+And conducting ablation studies by comparing:
+(1) Baseline VLA versus various combinations of mitigation modules (detection only, detection + multi-view, detection + CoT, full system).
+(2) GRPO-trained models versus models without reinforcement learning.
+  These comparisons help us understand which components contribute most to reducing hallucinations and improving safe behavior.
+
+Mitigating Hallucination and Perception Errors in Vision Language Agents  •  25
+
+Table 3. Ablation Study Design and Expected Performance Metrics
+
+Config- urationDetection Ground- ingMulti-View Consis- tencyCoT	+
+Self- VerifyGRPO
+Train- ingExpected Halluci- nation RateExpected Task SuccessExpected Safety ScoreBaseline VLA????High (baseline)ModerateLow+Detection????Moderate- HighModerateModerate+Detection
++Multi- View????ModerateModerate- HighModerate+Detection
++CoT????ModerateModerate- HighModerate- HighFull System (no GRPO)????Low- ModerateHighHighFull System
++GRPO????LowHighHigh
+Metrics Legend:
+• Hallucination Rate: % of outputs containing at least one hallucination
+• Task Success: % of correctly completed embodied tasks
+• Safety Score: Composite measure from IS-Bench/SafeAgentBench protocols
+
+5 Professional, Legal, Ethical and Social Issues (PLES)
+
+5.1 Professional and Engineering Responsibilities
+Developers of embodied VLAs must take professional obligations regarding designing the system with the following requirements:
+• Rigorous testing under various conditions, including adversarial and edge cases
+• clear documentation of limitations of residual hallucinations and the recommended operating conditions
+• Fail-safe system design with regard to emergency stop handling and cautious default strategies when under conditions of high uncertainty [7, 9, 13].
+
+26  •  Vedhagiri Alagesan
+
+  The proposed framework makes an important contribution to the state of the practice because it reduces a broad class of perception failures and provides debugging and safety auditing log information.
+
+5.2 Legal and Regulatory Frameworks
+As the embodied AI system transitions from the research environment to the marketplace, it must conform to new AI regulatory and product safety laws. Some of the legal aspects that come into play include the following:
+• Liability:If the agent causes damage based on hallucinated perceptions, the liability could lie with hardware suppliers, software developers, and system integrators collectively.
+• Compliance:The risk-based regulation of AI may consider embodied assistants as being of high-risk and may demand visible risk management [3, 13].
+• Data Protection:The collection and processing of visual information within the context of the home environment could pose certain issues of privacy.
+  Through the loggings of the perception and reasoning traces, the proposed system facilitates pre-deployment testing and post-incident investigations.
+
+5.3 Ethical Issues: Fairness, Transparency and Trust
+Note that the ethical issues lie with issues of equity, explainability, and user trust. Given the possibility of different hallucination rates between various settings (cluttered vs. uncluttered settings), certain users may be more prone to failures or dangers [3, 13, 15]. A solution to this problem must thus assess different settings.
+  There's a need for transparency too. Clients tend to overestimate the results of fluent- language; thus, there should be clear communication of guesses via phrases like 'Not sure' or 'Can't see the object' because of the study on uncertainty by the researchers [12]. The results of the CoT tasks should be made more understandable through user-friendly communication.
+
+Mitigating Hallucination and Perception Errors in Vision Language Agents  •  27
+
+5.4 Social Impacts and Future of Work
+However, the
+Social implications include:
+• Changing patterns of domestic and industrial labour, as tasks traditionally performed by humans become automated.
+• Accessibility benefits with regard to individuals who may make use of embodied agents interactions with the physical world.
+• The importance of digital literacy so that the users are aware of the capabilities and constraints of VLAs [3, 13].
+  Mitigating the problem of hallucination is therefore a prerequisite of beneficial effects on the social level because without proper perception, the deployment of embodied agents on a mass scale could not be considered safely feasible.
+
+28  •  Vedhagiri Alagesan
+
+5.5 Conclusion and Limitations
+This proposal has discussed an requirement-driven research study on the mitigation of hallucinations in Vision-Language embodied agents on a Unity simulation platform via GRPO reinforcement learning. A discussion of the literature showed that the problem of multi-modal hallucinations is ubiquitous, structurally modeled, and highly hazardous when considering embodied scenarios [1, 3, 7, 13, 15]. Benchmarks MIHBench, POPE, IS-Bench, and SafeAgentBench introduce multi-image, spatial, and hazard-related failure cases [3, 4, 7, 13]. Current solutions exist but are fragmented or apply only at test time [11, 12, 14]
+This proposed approach fills the above-mentioned gaps by integrating the following:
+• Detector-grounded prompts through YOLO-style perception [2].
+• Multi-view consistency checks based on the MIHBench approach [3].
+• Chain of thought reasoning/self-verification [14].
+• GRPO-based training with a focus on multimodal alignment [8, 11].
+  Requirements analysis and methodology illustrate how abstract system goals are realized as system design. The discussion on PLES places the technical endeavor into the context of more general discussions on AI safety, accountability, and its effects on society [7, 9, 12, 13]
+Limitations include:
+• Initial reliance on simulation, which may not accurately relate to reality.
+• Dependence on detector quality and area of expertise.
+• Sensitivity of RL algorithms to reward definition and hyperparameters that might result in too cautious behavior.
+  Future works may include the application of the proposed approach on real robots with the incorporation of advanced VLM detectors, and other calibration methods of verbalized confidence [9, 15].
+
+
+References
+
+Mitigating Hallucination and Perception Errors in Vision Language Agents  •  29
+
+[1] Joyce Chai, Xuweiyi Chen, David Fouhey, Ziqiao Ma, Shengyi Qian, Sihan Xu, Jianing Yang, and Xuejun Zhang. 2024. Multi-Object Hallucination in Vision Language Models. Advances in Neural Information Processing Systems 37 (2024). https://api.semanticscholar.org/CorpusID:282768651
+[2] B Karthika, M Dharssinee, V. Reshma, R Venkatesan, and R Sujarani. 2024. Object Detection Using YOLO-V8. 2024 15th International Conference on Computing Communication and Networking Technologies (ICCCNT) (2024), 1-4. https://api.semanticscholar.org/CorpusID:273843964
+[3] Jiale Li, Ming-Kuan Wu, Zixiang Jin, Hao Chen, Jiayi Ji, Xiaoshuai Sun, Liujuan Cao, and Rongrong Ji. 2025. MIHBench: Benchmarking and Mitigating Multi-Image Hallucinations in Multimodal Large Language Models. Proceedings of the 33rd ACM International Conference on Multimedia (2025). https:
+//api.semanticscholar.org/CorpusID:280417399
+[4] Yifan Li, Yifan Du, Kun Zhou, Jinpeng Wang, Wayne Xin Zhao, and Ji rong Wen. 2023. Evaluating Object Hallucination in Large Vision-Language Models. In Conference on Empirical Methods in Natural Language Processing. https://api.semanticscholar.org/CorpusID:258740697
+[5] Haotian Liu, Chunyuan Li, Yuheng Li, and Yong Jae Lee. 2023. Improved Baselines with Visual Instruction Tuning. 2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) (2023), 26286- 26296. https://api.semanticscholar.org/CorpusID:263672058
+[6] Hanchao Liu, Wenyuan Xue, Yifei Chen, Dapeng Chen, Xiutian Zhao, Ke Wang, Liping Hou, Rong-Zhi Li, and Wei Peng. 2024. A Survey on Hallucination in Large Vision-Language Models. ArXiv abs/2402.00253 (2024). https://api.semanticscholar.org/CorpusID:267365472
+[7] Xiaoya Lu, Zeren Chen, Xuhao Hu, Yijin Zhou, Weichen Zhang, Dongrui Liu, Lu Sheng, and Jing Shao. 2025. IS-Bench: Evaluating Interactive Safety of VLM-Driven Embodied Agents in Daily Household Tasks. ArXiv abs/2506.16402 (2025). https://api.semanticscholar.org/CorpusID:279464064
+[8] Yuge Shi. 2025. A vision researcher's guide to some RL stuff: PPO & GRPO. https://yugeten.github.io/ posts/2025/01/ppogrpo/ Blog post.
+[9] Zhiqing Sun, Sheng Shen, Shengcao Cao, Haotian Liu, Chunyuan Li, Yikang Shen, Chuang Gan, Liangyan Gui, Yu-Xiong Wang, Yiming Yang, Kurt Keutzer, and Trevor Darrell. 2023. Aligning Large Multimodal Models with Factually Augmented RLHF. ArXiv abs/2309.14525 (2023). https://api.semanticscholar.org/ CorpusID:262824780
+[10] Xintong Wang, Jingheng Pan, Liang Ding, and Christian Biemann. 2024. Mitigating Hallucinations in Large Vision-Language Models with Instruction Contrastive Decoding. ArXiv abs/2403.18715 (2024). https://api.semanticscholar.org/CorpusID:268724017
+
+30  •  Vedhagiri Alagesan
+
+[11] Wenyi Xiao and Leilei Gan. 2025. Fast-Slow Thinking GRPO for Large Vision-Language Model Reasoning. https://api.semanticscholar.org/CorpusID:278129704
+[12] Yijun Xiao and William Yang Wang. 2021. On Hallucination and Predictive Uncertainty in Condi- tional Language Generation. ArXiv abs/2103.15025 (2021). https://api.semanticscholar.org/CorpusID: 232404053
+[13] Sheng Yin, Xianghe Pang, Yuanzhuo Ding, Menglan Chen, Yutong Bi, Yichen Xiong, Wenhao Huang, Zhen Xiang, Jing Shao, and Siheng Chen. 2024. SafeAgentBench: A Benchmark for Safe Task Planning of Embodied LLM Agents. ArXiv abs/2412.13178 (2024). https://api.semanticscholar.org/CorpusID: 274789097
+[14] Zhuosheng Zhang, Aston Zhang, Mu Li, Hai Zhao, George Karypis, and Alexander J. Smola. 2023. Multimodal Chain-of-Thought Reasoning in Language Models. Trans. Mach. Learn. Res. 2024 (2023). https://api.semanticscholar.org/CorpusID:256504063
+[15] Yingjie Zhu, Xuefeng Bai, Kehai Chen, Yang Xiang, Weili Guan, Jun Yu, and Min Zhang. 2025. From Bias to Balance: Exploring and Mitigating Spatial Bias in LVLMs. ArXiv abs/2509.21984 (2025). https:
+//api.semanticscholar.org/CorpusID:281659373
+
+Mitigating Hallucination and Perception Errors in Vision Language Agents  •  31
+
+A Project Management
+
+A.1 Gantt Chart
+
+Fig. 4. MSc Project Timeline: VLM Hallucination Mitigation (12 Weeks, January 2026 - April 2026)
+
+  The project is structured across 12 weeks, divided into 5 major modules, starting from January 7, 2026. Figure 4 illustrates the comprehensive timeline with task dependencies and milestones.
+A.1.1 Module 1: Foundation & Baseline . This initial phase establishes the experimental infrastructure and baseline measurements for the VLM hallucination mitigation system.
+(Jan 14-19): Unity Environment Setup
+• Create Unity scenes that show different test situations, like a simple room, a messy room, and a dangerous situation.
+• Import Unity Perception components to label the ground truth.
+• Check that you can export images and ground truth data (object lists, properties) for each frame.
+• Milestone: The Unity simulation makes a set of labeled images for simple scenes.
+
+32  •  Vedhagiri Alagesan
+
+(Jan 16-21): VLM Integration (Baseline)
+• Set up vision-language model (like, BLIP-2) in Python env.
+• Connect Unity and Python through an API or file exchange to make frame-by-frame VLM captions
+• Run baseline tests on static scene sets • Keep track of baseline performance metrics (how often hallucinations happen per scene type)
+• Milestone: The baseline VLM agent makes outputs for all test scenes and keeps track of the results
+(Jan 19-26): Object Detection Module
+• Integrate YOLOv8 model or utilize Unity's labels for object detection
+• Develop code to format detection results into structured prompts
+• Test module in isolation to ensure accurate object listing
+• Milestone: Detection pipeline yields correct object lists for sample scenes
+
+A.1.2 Module 2: Enhancement Strategies. This module implements and evaluates multiple hallucination mitigation strategies.
+(Jan 26 - Feb 2): Grounded Prompting & Iteration
+• Modify agent prompts to include detected objects (Strategy 1)
+• Test on scene sets and measure reduction in hallucinated objects
+• Debug edge cases where model introduces spurious objects
+• Refine prompt phrasing based on empirical results
+• Milestone: Grounded agent demonstrates near-zero object hallucinations in simple scenarios
+(Feb 2-9): Multi-View and Consistency
+• Add multi-image capability to the system
+• Configure Unity to capture multiple views for each scene
+• Implement multi-image VLM input or dual-execution comparison
+• Develop consistency check algorithm to flag errors
+
+Mitigating Hallucination and Perception Errors in Vision Language Agents  •  33
+
+• Log inconsistencies for analysis
+• Milestone: System uses two views and detects its own inconsistent descriptions
+(Feb 9-16): Chain-of-Thought & Self-Questioning
+• Initialize chain-of-thought prompts for reasoning transparency
+• Optionally fine-tune VLM on reasoning examples (small learning rate)
+• Implement reflection step with verification questions post-output
+• Milestone: CoT prompting maintains model functionality while producing qualitative discription
+A.1.3 Module 3: Integration & RL Training. This critical phase combines all enhance- ment strategies and trains the model using reinforcement learning.
+(Feb 16-19): Integrated System Dry Run
+• Combine detection grounding, multi-view, and CoT in unified agent pipeline
+• Design careful integration to avoid module errors
+• Ensuring chain-of-thought properly utilizes detection information
+• Execute comprehensive scenario tests with all modules
+• Identify residual hallucinations or format issues
+• Milestone: Fully integrated system operates on test scenarios without critical bugs
+(Feb 19-23): RL Setup
+• Implement GRPO (Group Relative Policy Optimization) training loop
+• Generate multiple responses per prompt (e.g., 4 outputs per group)
+• Develop reward computation function comparing outputs to Unity ground truth
+• Perform policy updates based on computed rewards
+• Verify training code with small-scale overfitting tests
+• Milestone: GRPO training code executes successfully with confirmed parameter updates and behavioral changes
+(Feb 23 - Mar 3): RL Training Phase
+• Train model on broad scenario set using reward function
+
+34  •  Vedhagiri Alagesan
+
+• Monitor hallucination rate on validation set
+• Adjust reward function if model becomes overly conservative (balance precision/re- call)
+• Utilize cloud compute resources for iteration-intensive training
+• Milestone: Post-RL model ready with demonstrable improved grounding
+
+A.1.4 Module 4: Testing & Evaluation. This module conducts comprehensive evaluation of the trained system.
+(Mar 5-9): Evaluating Benchmarks
+• Design evaluation protocol for systematic assessment
+• Prepare benchmark scenarios (seen and unseen during training)
+• Set up metric collection infrastructure
+(Mar 10-16): Recording Evaluation Metrics
+• Execute evaluation across all test scenarios
+• Record quantitative metrics: hallucination frequency, precision, recall
+• Measure task success rates in interactive scenarios
+• Collect qualitative examples of outputs (before vs. after mitigation)
+(Mar 16- April 2): Final Evaluation
+• Complete systematic evaluation on full scenario suite
+• Test generalization to novel scenarios
+• Analyze correctness of answers and task performance
+• Milestone: All evaluation results obtained and tabulated
+
+A.1.5 Module 5: Report Analysis. The final module focuses on analysis, documentation, and dissertation completion.
+(Mar 13- Apr 6): Dissertation Writing and Review
+• Analyze results and create visualizations (bar charts of hallucination rates by condi- tion)
+• Prepare architecture diagrams and results graphs
+
+Mitigating Hallucination and Perception Errors in Vision Language Agents  •  35
+
+• Compile findings into dissertation format
+• Write discussion section interpreting improvements and failure cases
+• Review and refine all chapters
+• Milestone: Dissertation draft completed, including comprehensive results and analy- sis
+Final Submission (April 14, 2026)
+  The complete dissertation, including all experimental results, analysis, and documenta- tion, will be submitted on the final deadline.
+
+B Generative AI
+In this research project, Generative AI tools have been used. compliance with the academic integrity policies in the University.
+Purpose of Use: Acceleration of the background was solely done with the help of the GenAI tools. Undertake research through locating the appropriate literature, synthesizing technical ideas, and refining the level of technical writing, grammar, clarity tests.
+Tools Used: Tools like onlinegantt, GitHub Copilot, Grammarly, GPT 5,. etc., were used. Output Generation: No written text, algorithms, data, experimental result or findings made by GenAI tools have been discussed as the original work of the author in this report. Verification: All the citations, facts, and source proposals that were created were checked manually. There is no academic misconduct associated with fake or false resource
