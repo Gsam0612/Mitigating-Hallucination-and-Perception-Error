@@ -1,6 +1,9 @@
-# Data (downloaded at runtime)
-data/
+# Data (downloaded at runtime — top-level only)
+/data/
 *.zip
+
+# Keep source data loaders
+!src/data/
 
 # Results (generated at runtime)
 results/
