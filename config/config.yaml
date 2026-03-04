@@ -55,7 +55,7 @@ grpo:
   clip_range: 0.2            # PPO-style clipping
   max_new_tokens: 256         # Shorter generation for faster training
   save_steps: 50
-  eval_steps: 25
+  eval_steps: 10
 
 # ----- Reward Weights -----
 rewards:

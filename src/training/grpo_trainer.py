@@ -39,7 +39,7 @@ class GRPOConfig:
     temperature: float = 0.8        # Sampling temperature for candidates
     max_new_tokens: int = 256
     save_steps: int = 50
-    eval_steps: int = 25
+    eval_steps: int = 10
     output_dir: str = "./results/grpo"
     # LoRA config
     lora_r: int = 16
