@@ -9,6 +9,8 @@ correct hallucinations before committing to a final answer.
 from typing import Dict, List, Optional, Tuple
 import re
 
+from src.constants import COCO_CATEGORIES as _SHARED_COCO_CATEGORIES
+
 
 class SelfVerifier:
     """
@@ -30,35 +32,14 @@ class SelfVerifier:
         """
         Extract object names mentioned in the VLM response.
 
-        Uses simple heuristic: looks for nouns after common patterns.
+        Uses word-boundary regex matching against shared COCO categories.
         """
-        # Common COCO-style object categories
-        coco_objects = {
-            "person", "bicycle", "car", "motorcycle", "airplane", "bus",
-            "train", "truck", "boat", "traffic light", "fire hydrant",
-            "stop sign", "parking meter", "bench", "bird", "cat", "dog",
-            "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe",
-            "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
-            "skis", "snowboard", "sports ball", "kite", "baseball bat",
-            "baseball glove", "skateboard", "surfboard", "tennis racket",
-            "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl",
-            "banana", "apple", "sandwich", "orange", "broccoli", "carrot",
-            "hot dog", "pizza", "donut", "cake", "chair", "couch",
-            "potted plant", "bed", "dining table", "toilet", "tv", "laptop",
-            "mouse", "remote", "keyboard", "cell phone", "microwave", "oven",
-            "toaster", "sink", "refrigerator", "book", "clock", "vase",
-            "scissors", "teddy bear", "hair drier", "toothbrush",
-            # Common additional terms
-            "table", "plate", "glass", "lamp", "pillow", "blanket",
-            "curtain", "door", "window", "wall", "floor", "ceiling",
-            "counter", "shelf", "cabinet", "drawer", "monitor", "screen",
-            "mug", "pan", "pot", "stove", "countertop",
-        }
+        coco_objects = _SHARED_COCO_CATEGORIES
 
         response_lower = response.lower()
         mentioned = []
         for obj in coco_objects:
-            if obj in response_lower:
+            if re.search(rf'\b{re.escape(obj)}\b', response_lower):
                 mentioned.append(obj)
 
         return mentioned

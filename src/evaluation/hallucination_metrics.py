@@ -9,6 +9,8 @@ import re
 from typing import Dict, List, Optional, Set, Tuple
 from collections import defaultdict
 
+from src.constants import COCO_CATEGORIES as _SHARED_COCO_CATEGORIES
+
 
 class HallucinationMetrics:
     """
@@ -16,28 +18,12 @@ class HallucinationMetrics:
     against ground-truth annotations.
     """
 
-    COCO_CATEGORIES = {
-        "person", "bicycle", "car", "motorcycle", "airplane", "bus",
-        "train", "truck", "boat", "traffic light", "fire hydrant",
-        "stop sign", "parking meter", "bench", "bird", "cat", "dog",
-        "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe",
-        "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
-        "skis", "snowboard", "sports ball", "kite", "baseball bat",
-        "baseball glove", "skateboard", "surfboard", "tennis racket",
-        "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl",
-        "banana", "apple", "sandwich", "orange", "broccoli", "carrot",
-        "hot dog", "pizza", "donut", "cake", "chair", "couch",
-        "potted plant", "bed", "dining table", "toilet", "tv", "laptop",
-        "mouse", "remote", "keyboard", "cell phone", "microwave", "oven",
-        "toaster", "sink", "refrigerator", "book", "clock", "vase",
-        "scissors", "teddy bear", "hair drier", "toothbrush",
-        "table", "plate", "glass", "lamp", "mug", "monitor",
-    }
+    COCO_CATEGORIES = _SHARED_COCO_CATEGORIES
 
     def extract_mentioned_objects(self, response: str) -> Set[str]:
         """Extract object categories mentioned in the response."""
         response_lower = response.lower()
-        return {obj for obj in self.COCO_CATEGORIES if obj in response_lower}
+        return {obj for obj in self.COCO_CATEGORIES if re.search(rf'\b{re.escape(obj)}\b', response_lower)}
 
     def object_existence_metrics(
         self,

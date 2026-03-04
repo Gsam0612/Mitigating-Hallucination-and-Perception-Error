@@ -12,9 +12,9 @@ import json
 import os
 from typing import Dict, List, Optional, Tuple
 
-import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 import numpy as np

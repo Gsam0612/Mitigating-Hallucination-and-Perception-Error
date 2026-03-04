@@ -199,8 +199,11 @@ class AblationRunner:
                 question, detections
             )
 
-        # Generate response
-        response = self.vlm_baseline.generate(image, prompt)
+        # Generate response — use GRPO model if available for that config
+        if config["grpo"] and grpo_model is not None:
+            response = grpo_model.generate(image, prompt)
+        else:
+            response = self.vlm_baseline.generate(image, prompt)
 
         # Self-verification
         if config["self_verify"]:

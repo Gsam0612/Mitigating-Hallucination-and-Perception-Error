@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from tqdm import tqdm
 
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
-from torch.utils.data import DataLoader
+from transformers import get_linear_schedule_with_warmup
 
 
 @dataclass
@@ -92,6 +92,9 @@ class GRPOTrainer:
             weight_decay=0.01,
         )
 
+        # LR scheduler (will be initialized in train() when dataset size is known)
+        self.scheduler = None
+
         # Training state
         self.global_step = 0
         self.train_logs: List[Dict] = []
@@ -131,12 +134,16 @@ class GRPOTrainer:
         input_ids: torch.Tensor,
         attention_mask: torch.Tensor,
         labels: torch.Tensor,
+        pixel_values: torch.Tensor = None,
     ) -> torch.Tensor:
         """Compute per-token log probabilities."""
-        outputs = model(
+        kwargs = dict(
             input_ids=input_ids,
             attention_mask=attention_mask,
         )
+        if pixel_values is not None:
+            kwargs["pixel_values"] = pixel_values
+        outputs = model(**kwargs)
         logits = outputs.logits
 
         # Shift for causal LM
@@ -212,6 +219,7 @@ class GRPOTrainer:
                 "full_ids": output_ids,
                 "input_ids": inputs["input_ids"],
                 "attention_mask": inputs["attention_mask"],
+                "pixel_values": inputs.get("pixel_values"),
             })
 
         return candidates
@@ -299,14 +307,18 @@ class GRPOTrainer:
             labels = full_ids.clone()
             labels[:, :input_ids.shape[1]] = -100
 
+            pixel_values = cand.get("pixel_values")
+
             log_prob = self._compute_log_probs(
-                self.model, full_ids, attn_mask, labels
+                self.model, full_ids, attn_mask, labels,
+                pixel_values=pixel_values,
             )
 
             # Compute log prob under reference policy (frozen)
             with torch.no_grad():
                 ref_log_prob = self._compute_log_probs(
-                    self.ref_model, full_ids, attn_mask, labels
+                    self.ref_model, full_ids, attn_mask, labels,
+                    pixel_values=pixel_values,
                 )
 
             # Policy ratio
@@ -344,6 +356,8 @@ class GRPOTrainer:
         # Optimizer step (with gradient accumulation)
         if (self.global_step + 1) % self.config.gradient_accumulation_steps == 0:
             self.optimizer.step()
+            if self.scheduler is not None:
+                self.scheduler.step()
             self.optimizer.zero_grad()
 
         self.global_step += 1
@@ -381,6 +395,16 @@ class GRPOTrainer:
         """
         os.makedirs(self.config.output_dir, exist_ok=True)
 
+        # Initialize LR scheduler
+        total_steps = len(train_dataset) * self.config.num_epochs
+        warmup_steps = int(total_steps * self.config.warmup_ratio)
+        self.scheduler = get_linear_schedule_with_warmup(
+            self.optimizer,
+            num_warmup_steps=warmup_steps,
+            num_training_steps=total_steps,
+        )
+        print(f"Scheduler: {warmup_steps} warmup steps, {total_steps} total steps")
+
         for epoch in range(self.config.num_epochs):
             print(f"\n{'='*60}")
             print(f"Epoch {epoch + 1}/{self.config.num_epochs}")
@@ -394,10 +418,10 @@ class GRPOTrainer:
                 question = sample["question"]
                 gt = sample["ground_truth"]
 
-                # Build grounded prompt if available
+                # Build grounded prompt if available (without wasteful VLM generation)
                 if grounded_vlm:
-                    result = grounded_vlm.generate(image, question)
-                    prompt = result["prompt"]
+                    detections = grounded_vlm.detector.detect(image)
+                    prompt = grounded_vlm.build_grounded_prompt(question, detections)
                 else:
                     prompt = question
 

@@ -107,7 +107,7 @@ class BaselineVLM:
         ).to(self.device, dtype=torch.float16)
 
         # Generate
-        do_sample = temp > 0 and num_return_sequences > 1
+        do_sample = temp > 0
         output_ids = self.model.generate(
             **inputs,
             max_new_tokens=max_tokens,

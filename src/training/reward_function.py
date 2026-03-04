@@ -9,6 +9,8 @@ to prefer grounded, non-hallucinated outputs.
 import re
 from typing import Dict, List, Optional, Set, Tuple
 
+from src.constants import COCO_CATEGORIES as _SHARED_COCO_CATEGORIES
+
 
 class HallucinationReward:
     """
@@ -24,24 +26,7 @@ class HallucinationReward:
     """
 
     # Common COCO object categories for extraction
-    COCO_CATEGORIES = {
-        "person", "bicycle", "car", "motorcycle", "airplane", "bus",
-        "train", "truck", "boat", "traffic light", "fire hydrant",
-        "stop sign", "parking meter", "bench", "bird", "cat", "dog",
-        "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe",
-        "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
-        "skis", "snowboard", "sports ball", "kite", "baseball bat",
-        "baseball glove", "skateboard", "surfboard", "tennis racket",
-        "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl",
-        "banana", "apple", "sandwich", "orange", "broccoli", "carrot",
-        "hot dog", "pizza", "donut", "cake", "chair", "couch",
-        "potted plant", "bed", "dining table", "toilet", "tv", "laptop",
-        "mouse", "remote", "keyboard", "cell phone", "microwave", "oven",
-        "toaster", "sink", "refrigerator", "book", "clock", "vase",
-        "scissors", "teddy bear", "hair drier", "toothbrush",
-        "table", "plate", "glass", "lamp", "mug", "monitor", "screen",
-        "counter", "shelf", "cabinet", "stove", "countertop", "pan", "pot",
-    }
+    COCO_CATEGORIES = _SHARED_COCO_CATEGORIES
 
     def __init__(
         self,
@@ -132,7 +117,7 @@ class HallucinationReward:
         response_lower = response.lower()
         mentioned = set()
         for obj in self.COCO_CATEGORIES:
-            if obj in response_lower:
+            if re.search(rf'\b{re.escape(obj)}\b', response_lower):
                 mentioned.add(obj)
         return mentioned
 
