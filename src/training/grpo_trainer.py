@@ -82,12 +82,13 @@ class GRPOTrainer:
         # Prepare model for LoRA fine-tuning
         self.model = self._setup_lora(model)
 
-        # Store reference model for KL penalty (frozen copy)
-        self.ref_model = model  # The original frozen model
+        # Reference policy: use self.model.disable_adapter() context manager
+        # to get base-model (pre-LoRA) log-probs.  No separate ref_model
+        # is needed — PeftModel can toggle adapters on/off.
 
-        # Optimizer
+        # Optimizer — only LoRA parameters have requires_grad=True
         self.optimizer = torch.optim.AdamW(
-            self.model.parameters(),
+            filter(lambda p: p.requires_grad, self.model.parameters()),
             lr=config.learning_rate,
             weight_decay=0.01,
         )
@@ -136,7 +137,7 @@ class GRPOTrainer:
         labels: torch.Tensor,
         pixel_values: torch.Tensor = None,
     ) -> torch.Tensor:
-        """Compute per-token log probabilities."""
+        """Compute per-token log probabilities with numerical safeguards."""
         kwargs = dict(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -146,18 +147,29 @@ class GRPOTrainer:
         outputs = model(**kwargs)
         logits = outputs.logits
 
+        # Clamp logits to prevent overflow in log_softmax
+        logits = logits.clamp(min=-100.0, max=100.0)
+
         # Shift for causal LM
         shift_logits = logits[:, :-1, :].contiguous()
         shift_labels = labels[:, 1:].contiguous()
 
+        # Clamp labels to valid vocab range to prevent CUDA index errors
+        vocab_size = shift_logits.shape[-1]
+        valid_mask = (shift_labels >= 0) & (shift_labels < vocab_size)
+        safe_labels = shift_labels.clamp(min=0, max=vocab_size - 1)
+
         log_probs = F.log_softmax(shift_logits, dim=-1)
         token_log_probs = log_probs.gather(
-            dim=-1, index=shift_labels.unsqueeze(-1)
+            dim=-1, index=safe_labels.unsqueeze(-1)
         ).squeeze(-1)
 
-        # Mask padding tokens
-        mask = (shift_labels != -100).float()
+        # Mask padding tokens AND out-of-range tokens
+        mask = ((shift_labels != -100) & valid_mask).float()
         sequence_log_probs = (token_log_probs * mask).sum(dim=-1) / mask.sum(dim=-1).clamp(min=1)
+
+        # Final clamp to prevent extreme values
+        sequence_log_probs = sequence_log_probs.clamp(min=-50.0, max=0.0)
 
         return sequence_log_probs
 
@@ -293,6 +305,7 @@ class GRPOTrainer:
 
         # Step 4: Compute policy loss
         total_loss = torch.tensor(0.0, device=self.device, requires_grad=True)
+        valid_candidates = 0
 
         for i, (cand, adv) in enumerate(zip(candidates, advantages)):
             if abs(adv) < 1e-8:
@@ -314,15 +327,24 @@ class GRPOTrainer:
                 pixel_values=pixel_values,
             )
 
-            # Compute log prob under reference policy (frozen)
+            # Compute log prob under reference policy
+            # (disable LoRA adapters → base model = frozen reference)
             with torch.no_grad():
-                ref_log_prob = self._compute_log_probs(
-                    self.ref_model, full_ids, attn_mask, labels,
-                    pixel_values=pixel_values,
-                )
+                self.model.eval()
+                with self.model.disable_adapter():
+                    ref_log_prob = self._compute_log_probs(
+                        self.model, full_ids, attn_mask, labels,
+                        pixel_values=pixel_values,
+                    )
+                self.model.train()
 
-            # Policy ratio
-            ratio = torch.exp(log_prob - ref_log_prob)
+            # Skip if NaN detected
+            if torch.isnan(log_prob).any() or torch.isnan(ref_log_prob).any():
+                continue
+
+            # Policy ratio (clamp log-ratio for numerical stability)
+            log_ratio = (log_prob - ref_log_prob).clamp(min=-10.0, max=10.0)
+            ratio = torch.exp(log_ratio)
 
             # Clipped objective (PPO-style)
             adv_tensor = torch.tensor(adv, device=self.device)
@@ -336,36 +358,57 @@ class GRPOTrainer:
             # GRPO loss = negative of min(surr1, surr2) — we maximize
             policy_loss = -torch.min(surr1, surr2)
 
-            # KL penalty
-            kl = (ref_log_prob - log_prob).mean()
-            kl_penalty = self.config.kl_coeff * kl
+            # KL penalty (approx KL = log_ratio, use absolute value)
+            kl_penalty = self.config.kl_coeff * log_ratio.abs().mean()
 
-            total_loss = total_loss + policy_loss + kl_penalty
+            candidate_loss = policy_loss + kl_penalty
 
-        # Normalize by number of candidates
-        total_loss = total_loss / k
+            if not torch.isnan(candidate_loss) and not torch.isinf(candidate_loss):
+                total_loss = total_loss + candidate_loss
+                valid_candidates += 1
 
-        # Backprop
-        total_loss.backward()
+        # Normalize by valid candidates
+        if valid_candidates > 0:
+            total_loss = total_loss / valid_candidates
 
-        # Gradient clipping
-        torch.nn.utils.clip_grad_norm_(
-            self.model.parameters(), self.config.max_grad_norm
-        )
+        # Backprop with NaN safety
+        skip_update = False
+        if torch.isnan(total_loss) or torch.isinf(total_loss):
+            skip_update = True
+        else:
+            total_loss.backward()
 
-        # Optimizer step (with gradient accumulation)
-        if (self.global_step + 1) % self.config.gradient_accumulation_steps == 0:
-            self.optimizer.step()
-            if self.scheduler is not None:
-                self.scheduler.step()
+            # Check for NaN gradients
+            for p in self.model.parameters():
+                if p.grad is not None and (torch.isnan(p.grad).any() or torch.isinf(p.grad).any()):
+                    skip_update = True
+                    break
+
+        if skip_update:
             self.optimizer.zero_grad()
+        else:
+            # Gradient clipping
+            torch.nn.utils.clip_grad_norm_(
+                self.model.parameters(), self.config.max_grad_norm
+            )
+
+            # Optimizer step (with gradient accumulation)
+            if (self.global_step + 1) % self.config.gradient_accumulation_steps == 0:
+                self.optimizer.step()
+                if self.scheduler is not None:
+                    self.scheduler.step()
+                self.optimizer.zero_grad()
 
         self.global_step += 1
+
+        # Periodic VRAM cleanup
+        if self.global_step % 10 == 0:
+            torch.cuda.empty_cache()
 
         # Log metrics
         metrics = {
             "step": self.global_step,
-            "loss": total_loss.item(),
+            "loss": total_loss.item() if not (torch.isnan(total_loss) or torch.isinf(total_loss)) else 0.0,
             "mean_reward": sum(rewards) / len(rewards),
             "max_reward": max(rewards),
             "min_reward": min(rewards),
@@ -374,6 +417,10 @@ class GRPOTrainer:
             "num_hallucinated_avg": sum(
                 len(rd["hallucinated_objects"]) for rd in reward_details
             ) / len(reward_details),
+            "num_missed_avg": sum(
+                len(rd.get("missed_objects", set())) for rd in reward_details
+            ) / len(reward_details),
+            "skipped": skip_update,
         }
 
         self.train_logs.append(metrics)
@@ -425,23 +472,41 @@ class GRPOTrainer:
                 else:
                     prompt = question
 
-                # Train step
-                metrics = self.train_step(
-                    image=image,
-                    prompt=prompt,
-                    gt_objects=gt["unique_objects"],
-                    gt_counts=gt["object_counts"],
-                    gt_spatial=sample.get("spatial_relations"),
-                )
+                # Train step — wrapped in try/except for CUDA recovery
+                try:
+                    metrics = self.train_step(
+                        image=image,
+                        prompt=prompt,
+                        gt_objects=gt["unique_objects"],
+                        gt_counts=gt["object_counts"],
+                        gt_spatial=sample.get("spatial_relations"),
+                    )
+                except RuntimeError as e:
+                    if "CUDA" in str(e) or "device-side" in str(e):
+                        print(f"\n  ⚠ CUDA error at step {self.global_step}, skipping...")
+                        self.optimizer.zero_grad()
+                        torch.cuda.empty_cache()
+                        self.global_step += 1
+                        continue
+                    raise
 
                 epoch_rewards.append(metrics["mean_reward"])
 
                 # Log periodically
                 if (self.global_step % self.config.eval_steps) == 0:
                     avg_reward = sum(epoch_rewards[-50:]) / len(epoch_rewards[-50:])
+                    halluc_avg = sum(
+                        log.get("num_hallucinated_avg", 0)
+                        for log in self.train_logs[-50:]
+                    ) / max(len(self.train_logs[-50:]), 1)
+                    missed_avg = sum(
+                        log.get("num_missed_avg", 0)
+                        for log in self.train_logs[-50:]
+                    ) / max(len(self.train_logs[-50:]), 1)
                     print(f"\n  Step {self.global_step}: "
                           f"avg_reward={avg_reward:.3f}, "
-                          f"halluc_avg={metrics['num_hallucinated_avg']:.1f}")
+                          f"halluc_avg={halluc_avg:.1f}, "
+                          f"missed_avg={missed_avg:.1f}")
 
                 # Save checkpoint
                 if (self.global_step % self.config.save_steps) == 0:
