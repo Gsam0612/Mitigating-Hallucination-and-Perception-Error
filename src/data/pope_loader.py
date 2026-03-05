@@ -56,10 +56,25 @@ class POPEBenchmark(Dataset):
     def __len__(self) -> int:
         return len(self.samples)
 
+    @staticmethod
+    def _resolve_image_filename(raw_name: str) -> str:
+        """Convert COCO-2014-style filenames to COCO-2017-style.
+
+        POPE files use 'COCO_val2014_000000XXXXXX.jpg' but COCO 2017
+        val images are named '000000XXXXXX.jpg'.
+        """
+        # Strip 'COCO_val2014_' or 'COCO_val2017_' prefix if present
+        import re
+        m = re.match(r"COCO_val\d{4}_(\d+\.jpg)", raw_name)
+        if m:
+            return m.group(1)
+        return raw_name
+
     def __getitem__(self, idx: int) -> Dict:
         sample = self.samples[idx]
 
-        image_path = os.path.join(self.images_dir, sample["image"])
+        filename = self._resolve_image_filename(sample["image"])
+        image_path = os.path.join(self.images_dir, filename)
         image = Image.open(image_path).convert("RGB")
 
         return {
